@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@auth0/angular-jwt": "^5.2.0",
+    "ngx-cookie-service": "^19.0.0"
+  }
+}
