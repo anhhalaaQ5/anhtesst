@@ -1,0 +1,779 @@
+package dao;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.List;
+import dto.UserDTO;
+import db.DBConnection;
+
+public class UserDAO {
+    public List<UserDTO> validateAndGetUser(String userid, String pass) {
+        List<UserDTO> users = new ArrayList<>();
+        
+        String countSql = "SELECT COUNT(*) AS cnt FROM MSTUSER WHERE Userid = ? AND Pass = ? AND Delete_ymd IS NULL";
+        String userSql = "SELECT Psn, Userid, Pass, Username FROM MSTUSER WHERE Userid = ? AND Delete_ymd IS NULL";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement countPs = conn.prepareStatement(countSql);
+             PreparedStatement userPs = conn.prepareStatement(userSql)) {
+
+            // Thực hiện query đếm số lượng user
+            countPs.setString(1, userid);
+            countPs.setString(2, pass);
+            ResultSet countRs = countPs.executeQuery();
+
+            if (countRs.next() && countRs.getInt("cnt") == 1) {
+                // Nếu tìm thấy đúng 1 user, thực hiện query lấy thông tin
+                userPs.setString(1, userid);
+                ResultSet userRs = userPs.executeQuery();
+
+                if (userRs.next()) {
+                    users.add(new UserDTO(
+                        userRs.getInt("Psn"),
+                        userRs.getString("Userid"),
+                        userRs.getString("Pass"),
+                        userRs.getString("Username")
+                    ));
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return users;
+    }
+
+        public static void main(String[] args) {
+
+            UserDAO userDAO = new UserDAO();
+            List<UserDTO> users = userDAO.validateAndGetUser("user1", "password123");
+            for (UserDTO user : users) {
+                System.out.println(user.getUsername());
+            }
+        }
+
+}
+
+\\\\\\\\\\\\
+package dao;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.List;
+
+import db.DBConnection;
+import dto.CustomerDTO;
+
+public class CustomerDAO {
+    private static final int RECORDS_PER_PAGE = 5;
+
+    public int getTotalRecords(String name, String sex, String birthdayFrom, String birthdayTo) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM MSTCUSTOMER WHERE DeleteYMD IS NULL");
+        int paramIndex = 1;
+
+        if (name != null && !name.trim().isEmpty()) {
+            sql.append(" AND Name LIKE ? ESCAPE '\\'");
+        }
+
+        if (sex != null && !sex.trim().isEmpty() && !"-1".equals(sex.trim())) {
+            sql.append(" AND Sex = ?");
+        }
+
+        if (birthdayFrom != null && !birthdayFrom.trim().isEmpty()) {
+            sql.append(" AND Birthday >= ?");
+        }
+
+        if (birthdayTo != null && !birthdayTo.trim().isEmpty()) {
+            sql.append(" AND Birthday <= ?");
+        }
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+
+            if (name != null && !name.trim().isEmpty()) {
+                ps.setString(paramIndex++, "%" + escapeLikePattern(name.trim()) + "%");
+            }
+
+            if (sex != null && !sex.trim().isEmpty() && !"-1".equals(sex.trim())) {
+                ps.setString(paramIndex++, sex.trim());
+            }
+
+            if (birthdayFrom != null && !birthdayFrom.trim().isEmpty()) {
+                ps.setString(paramIndex++, birthdayFrom.trim());
+            }
+
+            if (birthdayTo != null && !birthdayTo.trim().isEmpty()) {
+                ps.setString(paramIndex++, birthdayTo.trim());
+            }
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    public List<CustomerDTO> searchCustomers(String name, String sex, String birthdayFrom, String birthdayTo, int page) {
+        List<CustomerDTO> customers = new ArrayList<>();
+        StringBuilder sql = new StringBuilder(
+            "SELECT Id, Name, Sex, Birthday, Email, Address FROM MSTCUSTOMER WHERE DeleteYMD IS NULL");
+        int paramIndex = 1;
+
+        if (name != null && !name.trim().isEmpty()) {
+            sql.append(" AND Name LIKE ? ESCAPE '\\'");
+        }
+
+        if (sex != null && !sex.trim().isEmpty() && !"-1".equals(sex.trim())) {
+            sql.append(" AND Sex = ?");
+        }
+
+        if (birthdayFrom != null && !birthdayFrom.trim().isEmpty()) {
+            sql.append(" AND Birthday >= ?");
+        }
+
+        if (birthdayTo != null && !birthdayTo.trim().isEmpty()) {
+            sql.append(" AND Birthday <= ?");
+        }
+
+        sql.append(" ORDER BY Id OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+
+            if (name != null && !name.trim().isEmpty()) {
+                ps.setString(paramIndex++, "%" + escapeLikePattern(name.trim()) + "%");
+            }
+
+            if (sex != null && !sex.trim().isEmpty() && !"-1".equals(sex.trim())) {
+                ps.setString(paramIndex++, sex.trim());
+            }
+
+            if (birthdayFrom != null && !birthdayFrom.trim().isEmpty()) {
+                ps.setString(paramIndex++, birthdayFrom.trim());
+            }
+
+            if (birthdayTo != null && !birthdayTo.trim().isEmpty()) {
+                ps.setString(paramIndex++, birthdayTo.trim());
+            }
+
+            ps.setInt(paramIndex++, (page - 1) * RECORDS_PER_PAGE);
+            ps.setInt(paramIndex, RECORDS_PER_PAGE);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    CustomerDTO customer = new CustomerDTO(
+                        rs.getInt("Id"),
+                        rs.getString("Name"),
+                        rs.getString("Sex").equals("0") ? 0 : 1,
+                        rs.getString("Birthday"),
+                        rs.getString("Email"),
+                        rs.getString("Address")
+                    );
+                    customers.add(customer);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return customers;
+    }
+
+    public int getMaxPage(int totalRecords) {
+        if (totalRecords == 0) return 1;
+        return (int) Math.ceil((double) totalRecords / RECORDS_PER_PAGE);
+    }
+
+    public boolean deleteCustomers(String[] customerIds) {
+        // Tạo câu SQL base
+        StringBuilder sql = new StringBuilder("UPDATE MSTCUSTOMER SET DeleteYMD = GETDATE() WHERE Id IN (");
+        
+        // Tạo chuỗi tham số (?,?,?) tương ứng với số lượng ID
+        for (int i = 0; i < customerIds.length; i++) {
+            if (i > 0) {
+                sql.append(",");
+            }
+            sql.append("?");
+        }
+        sql.append(")");
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            
+            // Set giá trị cho từng tham số
+            for (int i = 0; i < customerIds.length; i++) {
+                ps.setInt(i + 1, Integer.parseInt(customerIds[i]));
+            }
+            
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // Khởi tạo đối tượng CustomerDAO
+        CustomerDAO customerDAO = new CustomerDAO();
+        
+        boolean deleteResult = customerDAO.deleteCustomers(new String[]{"1"});
+        System.out.println("Kết quả xóa: " + (deleteResult ? "Thành công" : "Thất bại"));
+        
+    }
+    
+    public int getNextCustomerId() {
+        String sql = "SELECT MAX(Id) + 1 FROM MSTCUSTOMER";
+        
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            
+            if (rs.next()) {
+                int nextId = rs.getInt(1);
+                return rs.wasNull() ? 1 : nextId;
+            }
+            return 1;
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return -1;
+        }
+    }
+
+    public boolean addCustomer(String name, String sex, String birthday, 
+                             String email, String address, int userPsn) {
+        String sql = "INSERT INTO MSTCUSTOMER (Id, Name, Sex, Birthday, Email, Address, " +
+                    "DeleteYMD, Insert_ymd, Insertpsncd, Updateymd, Updatepsncd) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, NULL, GETDATE(), ?, GETDATE(), ?)";
+
+        try (Connection conn = DBConnection.getConnection()) {
+            // Lấy ID mới
+            int newId = getNextCustomerId();
+            if (newId == -1) {
+                return false;
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, newId);
+                ps.setString(2, name);
+                ps.setString(3, sex);
+                ps.setString(4, birthday);
+                ps.setString(5, email);
+                ps.setString(6, address);
+                ps.setInt(7, userPsn);
+                ps.setInt(8, userPsn);
+
+                return ps.executeUpdate() > 0;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public CustomerDTO getCustomerById(int customerId) {
+        String sql = "SELECT Id, Name, Sex, Birthday, Email, Address FROM MSTCUSTOMER " +
+                    "WHERE Id = ? AND DeleteYMD IS NULL";
+        
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            
+            ps.setInt(1, customerId);
+            
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new CustomerDTO(
+                        rs.getInt("Id"),
+                        rs.getString("Name"),
+                        rs.getString("Sex").equals("0") ? 0 : 1,
+                        rs.getString("Birthday"),
+                        rs.getString("Email"),
+                        rs.getString("Address")
+                    );
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public boolean updateCustomer(int customerId, String name, String sex, 
+                                String birthday, String email, String address, int userPsn) {
+        String sql = "UPDATE MSTCUSTOMER SET " +
+                    "Name = ?, Sex = ?, Birthday = ?, Email = ?, Address = ?, " +
+                    "DeleteYMD = NULL, Updateymd = GETDATE(), Updatepsncd = ? " +
+                    "WHERE Id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            
+            ps.setString(1, name);
+            ps.setString(2, sex);
+            ps.setString(3, birthday);
+            ps.setString(4, email);
+            ps.setString(5, address);
+            ps.setInt(6, userPsn);
+            ps.setInt(7, customerId);
+
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private String escapeLikePattern(String pattern) {
+        if (pattern == null) return null;
+        return pattern.replace("%", "\\%")
+                     .replace("_", "\\_");
+    }
+}
+\\\\\\\\\\\\\\\\\\
+package factory;
+
+import dao.UserDAO;
+import dto.UserDTO;
+import jakarta.servlet.http.HttpSession;
+import java.util.List;
+
+public class LoginFactory {
+    private final UserDAO userDAO = new UserDAO();
+    
+    public void processLogout(HttpSession session) {
+        if (session != null) {
+            session.invalidate();
+        }
+    }
+    
+    public String processLogin(String userid, String pass) {
+        if (userid == null || userid.trim().isEmpty()) {
+            return "Vui lòng nhập userid";
+        }
+        if (pass == null || pass.trim().isEmpty()) {
+            return "Vui lòng nhập password";
+        }
+
+        List<UserDTO> users = userDAO.validateAndGetUser(userid, pass);
+        return users.isEmpty() ? "Userid hoặc password không đúng" : "";
+    }
+    
+    public UserDTO getUserInfo(String userid, String pass) {
+        List<UserDTO> users = userDAO.validateAndGetUser(userid, pass);
+        return users.isEmpty() ? null : users.get(0);
+    }
+} \\\\\\\\\\\\
+package factory;
+
+import java.util.List;
+
+import dao.CustomerDAO;
+import dto.CustomerDTO;
+
+public class CustomerFactory {
+    private final CustomerDAO customerDAO = new CustomerDAO();
+    private static final int RECORDS_PER_PAGE = 5;
+
+    public List<CustomerDTO> searchCustomers(String name, String sex, String birthdayFrom, 
+            String birthdayTo, int page) {
+        return customerDAO.searchCustomers(name, sex, birthdayFrom, birthdayTo, page);
+    }
+
+    public int getTotalRecords(String name, String sex, String birthdayFrom, String birthdayTo) {
+        return customerDAO.getTotalRecords(name, sex, birthdayFrom, birthdayTo);
+    }
+
+    public int getMaxPage(int totalRecords) {
+        return customerDAO.getMaxPage(totalRecords);
+    }
+
+    public boolean deleteCustomers(String[] customerIds) {
+        if (customerIds == null || customerIds.length == 0) {
+            return false;
+        }
+        return customerDAO.deleteCustomers(customerIds);
+    }
+
+    public int calculateCurrentPage(String pageStr, int maxPage) {
+        int page = 1;
+        if (pageStr != null && !pageStr.isEmpty()) {
+            try {
+                page = Integer.parseInt(pageStr);
+                if (page < 1) page = 1;
+                if (page > maxPage) page = maxPage;
+            } catch (NumberFormatException e) {
+                page = 1;
+            }
+        }
+        return page;
+    }
+} \\\\\\\\\\\\\\\\\\\
+package factory;
+
+import dao.CustomerDAO;
+import dto.CustomerDTO;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+public class CustomerAddFactory {
+    private final CustomerDAO customerDAO = new CustomerDAO();
+    
+    public CustomerDTO getCustomerById(int customerId) {
+        return customerDAO.getCustomerById(customerId);
+    }
+    
+    public boolean updateCustomer(int customerId, String name, String sex, 
+                                String birthday, String email, String address, int userPsn) {
+        return customerDAO.updateCustomer(customerId, name, sex, birthday, email, address, userPsn);
+    }
+    
+    public boolean addCustomer(String name, String sex, String birthday, 
+                             String email, String address, int userPsn) {
+        return customerDAO.addCustomer(name, sex, birthday, email, address, userPsn);
+    }
+
+    public String buildRedirectURL(String searchName, String searchSex, 
+                                 String searchBirthdayFrom, String searchBirthdayTo, 
+                                 String currentPage) {
+        StringBuilder redirectURL = new StringBuilder("search.jsp?");
+
+        appendParam(redirectURL, "customerName", searchName);
+        appendParam(redirectURL, "sex", searchSex, "-1");
+        appendParam(redirectURL, "birthdayFrom", searchBirthdayFrom);
+        appendParam(redirectURL, "birthdayTo", searchBirthdayTo);
+        appendParam(redirectURL, "page", currentPage);
+
+        return redirectURL.toString();
+    }
+
+    private void appendParam(StringBuilder url, String paramName, String paramValue) {
+        appendParam(url, paramName, paramValue, null);
+    }
+
+    private void appendParam(StringBuilder url, String paramName, String paramValue, String skipValue) {
+        if (paramValue != null && !paramValue.isEmpty() && 
+            (skipValue == null || !skipValue.equals(paramValue))) {
+            if (url.charAt(url.length() - 1) != '?') {
+                url.append("&");
+            }
+            url.append(paramName).append("=")
+               .append(URLEncoder.encode(paramValue, StandardCharsets.UTF_8));
+        }
+    }
+} \\\\\\\\\\\\\\\\\\\\\\
+package action;
+
+import java.io.IOException;
+import factory.LoginFactory;
+import dto.UserDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+
+public class LoginServlet extends HttpServlet {
+    private final LoginFactory loginFactory = new LoginFactory();
+    
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        String action = request.getParameter("action");
+
+        if ("logout".equals(action)) {
+            HttpSession session = request.getSession(false);
+            loginFactory.processLogout(session);
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        request.getRequestDispatcher("/login.jsp").forward(request, response);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        String userid = request.getParameter("userid");
+        String pass = request.getParameter("pass");
+        
+        // Xử lý logic login thông qua factory
+        String errorMsg = loginFactory.processLogin(userid, pass);
+
+        if (!errorMsg.isEmpty()) {
+            request.setAttribute("error", errorMsg);
+            request.getRequestDispatcher("/login.jsp").forward(request, response);
+        } else {
+            // Lấy thông tin user và lưu vào session
+            UserDTO user = loginFactory.getUserInfo(userid, pass);
+            if (user != null) {
+                HttpSession session = request.getSession();
+                session.setAttribute("user", user);  // Lưu toàn bộ object user
+            }
+            response.sendRedirect("search.jsp");
+        }
+    }
+}
+\\\\\\\\\\\\\\\\\\\\\\\
+package action;
+
+import factory.CustomerFactory;
+import dto.CustomerDTO;
+import dto.UserDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import java.io.IOException;
+import java.util.List;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+@WebServlet("/search.jsp")
+public class CustomerServlet extends HttpServlet {
+    private final CustomerFactory customerFactory = new CustomerFactory();
+
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        // Lấy và lưu các tham số tìm kiếm
+        String name = request.getParameter("customerName");
+        String sex = request.getParameter("sex");
+        String birthdayFrom = request.getParameter("birthdayFrom");
+        String birthdayTo = request.getParameter("birthdayTo");
+        
+        saveSearchParams(session, name, sex, birthdayFrom, birthdayTo);
+
+        // Xử lý phân trang
+        int totalRecords = customerFactory.getTotalRecords(name, sex, birthdayFrom, birthdayTo);
+        int maxPage = customerFactory.getMaxPage(totalRecords);
+        int currentPage = customerFactory.calculateCurrentPage(request.getParameter("page"), maxPage);
+        
+        // Lấy dữ liệu khách hàng
+        List<CustomerDTO> customers = customerFactory.searchCustomers(name, sex, birthdayFrom, birthdayTo, currentPage);
+
+        // Set attributes cho view
+        setRequestAttributes(request, customers, currentPage, maxPage, totalRecords);
+        
+        // Forward to view
+        request.getRequestDispatcher("/WEB-INF/views/search.jsp").forward(request, response);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        
+        if ("delete".equals(action)) {
+            handleDelete(request, response);
+            return;
+        }
+        
+        doGet(request, response);
+    }
+
+    private void saveSearchParams(HttpSession session, String name, String sex, 
+                                String birthdayFrom, String birthdayTo) {
+        session.setAttribute("searchName", name);
+        session.setAttribute("searchSex", sex);
+        session.setAttribute("searchBirthdayFrom", birthdayFrom);
+        session.setAttribute("searchBirthdayTo", birthdayTo);
+    }
+
+    private void setRequestAttributes(HttpServletRequest request, List<CustomerDTO> customers, 
+                                    int currentPage, int maxPage, int totalRecords) {
+        request.setAttribute("customers", customers);
+        request.setAttribute("currentPage", currentPage);
+        request.setAttribute("maxPage", maxPage);
+        request.setAttribute("totalRecords", totalRecords);
+    }
+
+    private void handleDelete(HttpServletRequest request, HttpServletResponse response) 
+            throws IOException {
+        String[] customerIds = request.getParameterValues("customerIds");
+        
+        try {
+            if (customerFactory.deleteCustomers(customerIds)) {
+                // Tạo URL redirect với các tham số tìm kiếm
+                String redirectURL = buildRedirectURL(request);
+                response.sendRedirect(redirectURL);
+            } else {
+                throw new RuntimeException("Không thể xóa khách hàng");
+            }
+        } catch (RuntimeException e) {
+            request.setAttribute("error", e.getMessage());
+            try {
+                doGet(request, response);
+            } catch (ServletException se) {
+                se.printStackTrace();
+            }
+        }
+    }
+
+    private String buildRedirectURL(HttpServletRequest request) {
+        StringBuilder redirectURL = new StringBuilder("search.jsp?");
+        appendParam(redirectURL, "customerName", request.getParameter("customerName"));
+        appendParam(redirectURL, "sex", request.getParameter("sex"), "-1");
+        appendParam(redirectURL, "birthdayFrom", request.getParameter("birthdayFrom"));
+        appendParam(redirectURL, "birthdayTo", request.getParameter("birthdayTo"));
+        appendParam(redirectURL, "page", request.getParameter("currentPage"));
+        
+        return redirectURL.toString();
+    }
+
+    private void appendParam(StringBuilder url, String paramName, String paramValue) {
+        appendParam(url, paramName, paramValue, null);
+    }
+
+    private void appendParam(StringBuilder url, String paramName, String paramValue, String skipValue) {
+        if (paramValue != null && !paramValue.isEmpty() && 
+            (skipValue == null || !skipValue.equals(paramValue))) {
+            if (url.charAt(url.length() - 1) != '?') {
+                url.append("&");
+            }
+            url.append(paramName).append("=")
+               .append(URLEncoder.encode(paramValue, StandardCharsets.UTF_8));
+        }
+    }
+}
+
+\\\\\\\\\\\\\\\\\\\\\\\
+package action;
+
+import java.io.IOException;
+import factory.CustomerAddFactory;
+import dto.CustomerDTO;
+import dto.UserDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+
+@WebServlet("/customer")
+public class CustomerAddServlet extends HttpServlet {
+    private final CustomerAddFactory customerAddFactory = new CustomerAddFactory();
+    
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        if (!validateSession(request, response)) return;
+
+        String action = request.getParameter("action");
+        
+        if ("add".equals(action)) {
+            request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+        } else if ("edit".equals(action)) {
+            handleEdit(request, response);
+        }
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        if (!validateSession(request, response)) return;
+
+        String action = request.getParameter("action");
+        
+        if ("save".equals(action)) {
+            handleSave(request, response);
+        }
+    }
+
+    private boolean validateSession(HttpServletRequest request, HttpServletResponse response) 
+            throws IOException {
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return false;
+        }
+        return true;
+    }
+
+    private void handleEdit(HttpServletRequest request, HttpServletResponse response) 
+            throws ServletException, IOException {
+        String customerId = request.getParameter("id");
+        if (customerId != null && !customerId.isEmpty()) {
+            CustomerDTO customer = customerAddFactory.getCustomerById(Integer.parseInt(customerId));
+            if (customer != null) {
+                request.setAttribute("customer", customer);
+                request.setAttribute("isEdit", true);
+                request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+                return;
+            }
+        }
+        response.sendRedirect("search.jsp");
+    }
+
+    private void handleSave(HttpServletRequest request, HttpServletResponse response) 
+            throws ServletException, IOException {
+        try {
+            HttpSession session = request.getSession();
+            UserDTO user = (UserDTO) session.getAttribute("user");
+            
+            // Lấy thông tin từ form
+            String customerId = request.getParameter("customerId");
+            String name = request.getParameter("customerName");
+            String sex = request.getParameter("sex");
+            String birthday = request.getParameter("birthday");
+            String email = request.getParameter("email");
+            String address = request.getParameter("address");
+            
+            boolean isEdit = customerId != null && !customerId.isEmpty();
+            boolean success;
+            
+            if (isEdit) {
+                success = customerAddFactory.updateCustomer(
+                    Integer.parseInt(customerId), name, sex, birthday, email, address, user.getPsn());
+            } else {
+                success = customerAddFactory.addCustomer(name, sex, birthday, email, address, user.getPsn());
+            }
+            
+            if (success) {
+                // Lấy các tham số tìm kiếm từ session
+                String redirectURL = customerAddFactory.buildRedirectURL(
+                    (String) session.getAttribute("searchName"),
+                    (String) session.getAttribute("searchSex"),
+                    (String) session.getAttribute("searchBirthdayFrom"),
+                    (String) session.getAttribute("searchBirthdayTo"),
+                    isEdit ? (String) session.getAttribute("currentPage") : "1"
+                );
+                
+                response.sendRedirect(redirectURL);
+            } else {
+                throw new RuntimeException("Không thể lưu thông tin khách hàng");
+            }
+        } catch (RuntimeException e) {
+            request.setAttribute("error", e.getMessage());
+            request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+        }
+    }
+}
