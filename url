@@ -1,0 +1,266 @@
+package action;
+
+import java.io.IOException;
+import java.util.List;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+import dao.CustomerDAO;
+import dto.CustomerDTO;
+import dto.UserDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+
+@WebServlet("/search.jsp")
+public class CustomerServlet extends HttpServlet {
+    private final CustomerDAO customerDAO = new CustomerDAO();
+
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        
+        // Kiểm tra session
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+        
+        String name = request.getParameter("customerName");
+        String sex = request.getParameter("sex");
+        String birthdayFrom = request.getParameter("birthdayFrom");
+        String birthdayTo = request.getParameter("birthdayTo");
+        
+        // Lưu các điều kiện tìm kiếm vào session
+        session.setAttribute("searchName", name);
+        session.setAttribute("searchSex", sex);
+        session.setAttribute("searchBirthdayFrom", birthdayFrom);
+        session.setAttribute("searchBirthdayTo", birthdayTo);
+        
+        // Xử lý phân trang
+        int page = 1;
+        String pageStr = request.getParameter("page");
+        if (pageStr != null && !pageStr.isEmpty()) {
+            page = Integer.parseInt(pageStr);
+        }
+        session.setAttribute("currentPage", String.valueOf(page));
+
+        // Lấy tổng số bản ghi và tính số trang
+        int totalRecords = customerDAO.getTotalRecords(name, sex, birthdayFrom, birthdayTo);
+        int maxPage = customerDAO.getMaxPage(totalRecords);
+
+        // Điều chỉnh page nếu vượt quá giới hạn
+        if (page < 1) page = 1;
+        if (page > maxPage) page = maxPage;
+
+        // Lấy dữ liệu theo trang
+        List<CustomerDTO> customers = customerDAO.searchCustomers(name, sex, birthdayFrom, birthdayTo, page);
+
+        // Lưu các giá trị vào request
+        request.setAttribute("customers", customers);
+        request.setAttribute("currentPage", page);
+        request.setAttribute("maxPage", maxPage);
+        request.setAttribute("totalRecords", totalRecords);
+        
+        request.getRequestDispatcher("/WEB-INF/views/search.jsp").forward(request, response);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        
+        if ("delete".equals(action)) {
+            String[] customerIds = request.getParameterValues("customerIds");
+            if (customerIds != null && customerIds.length > 0) {
+                try {
+                    customerDAO.deleteCustomers(customerIds);
+                    
+                    // Lấy lại các tham số tìm kiếm và trang hiện tại
+                    String name = request.getParameter("customerName");
+                    String sex = request.getParameter("sex");
+                    String birthdayFrom = request.getParameter("birthdayFrom");
+                    String birthdayTo = request.getParameter("birthdayTo");
+                    String currentPage = request.getParameter("currentPage");
+                    
+                    // Tạo URL với dấu ? sẵn
+                    StringBuilder redirectURL = new StringBuilder("search.jsp?");
+
+                    if (name != null && !name.isEmpty()) {
+                        redirectURL.append("customerName=")
+                                 .append(URLEncoder.encode(name, StandardCharsets.UTF_8))
+                                 .append("&");
+                    }
+                    if (sex != null && !sex.isEmpty() && !"-1".equals(sex)) {
+                        redirectURL.append("sex=")
+                                 .append(URLEncoder.encode(sex, StandardCharsets.UTF_8))
+                                 .append("&");
+                    }
+                    if (birthdayFrom != null && !birthdayFrom.isEmpty()) {
+                        redirectURL.append("birthdayFrom=")
+                                 .append(URLEncoder.encode(birthdayFrom, StandardCharsets.UTF_8))
+                                 .append("&");
+                    }
+                    if (birthdayTo != null && !birthdayTo.isEmpty()) {
+                        redirectURL.append("birthdayTo=")
+                                 .append(URLEncoder.encode(birthdayTo, StandardCharsets.UTF_8))
+                                 .append("&");
+                    }
+                    if (currentPage != null && !currentPage.isEmpty()) {
+                        redirectURL.append("page=")
+                                 .append(URLEncoder.encode(currentPage, StandardCharsets.UTF_8));
+                    }
+                    
+                    response.sendRedirect(redirectURL.toString());
+                    return;
+                    
+                } catch (RuntimeException e) {
+                    request.setAttribute("error", e.getMessage());
+                    doGet(request, response);
+                }
+            }
+        }
+        
+        doGet(request, response);
+    }
+}
+
+\\\\\\\\\\\\\\\\\
+package action;
+
+import java.io.IOException;
+import dao.CustomerDAO;
+import dto.CustomerDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import dto.UserDTO;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+@WebServlet("/customer")
+public class CustomerAddServlet extends HttpServlet {
+    private final CustomerDAO customerDAO = new CustomerDAO();
+    
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        
+        if ("add".equals(action)) {
+            request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+        } else if ("edit".equals(action)) {
+            String customerId = request.getParameter("id");
+            if (customerId != null && !customerId.isEmpty()) {
+                CustomerDTO customer = customerDAO.getCustomerById(Integer.parseInt(customerId));
+                if (customer != null) {
+                    request.setAttribute("customer", customer);
+                    request.setAttribute("isEdit", true);
+                    request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+                    return;
+                }
+            }
+            response.sendRedirect("search.jsp");
+        }
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        // Kiểm tra session
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        
+        if ("save".equals(action)) {
+            try {
+                String customerId = request.getParameter("customerId");
+                String name = request.getParameter("customerName");
+                String sex = request.getParameter("sex");
+                String birthday = request.getParameter("birthday");
+                String email = request.getParameter("email");
+                String address = request.getParameter("address");
+                
+                boolean isEdit = customerId != null && !customerId.isEmpty();
+                
+                if (isEdit) {
+                    customerDAO.updateCustomer(
+                        Integer.parseInt(customerId), name, sex, birthday, email, address, user.getPsn());
+                } else {
+                    customerDAO.addCustomer(name, sex, birthday, email, address, user.getPsn());
+                }
+                
+                // Lấy các tham số tìm kiếm từ session
+                String searchName = (String) session.getAttribute("searchName");
+                String searchSex = (String) session.getAttribute("searchSex");
+                String searchBirthdayFrom = (String) session.getAttribute("searchBirthdayFrom");
+                String searchBirthdayTo = (String) session.getAttribute("searchBirthdayTo");
+                String currentPage = isEdit ? (String) session.getAttribute("currentPage") : "1";
+                
+                // Tạo URL với dấu ? sẵn
+                StringBuilder redirectURL = new StringBuilder("search.jsp?");
+
+                // Thêm các tham số nếu có
+                if (searchName != null && !searchName.isEmpty()) {
+                    redirectURL.append("customerName=")
+                             .append(URLEncoder.encode(searchName, StandardCharsets.UTF_8))
+                             .append("&");
+                }
+                if (searchSex != null && !searchSex.isEmpty() && !"-1".equals(searchSex)) {
+                    redirectURL.append("sex=")
+                             .append(URLEncoder.encode(searchSex, StandardCharsets.UTF_8))
+                             .append("&");
+                }
+                if (searchBirthdayFrom != null && !searchBirthdayFrom.isEmpty()) {
+                    redirectURL.append("birthdayFrom=")
+                             .append(URLEncoder.encode(searchBirthdayFrom, StandardCharsets.UTF_8))
+                             .append("&");
+                }
+                if (searchBirthdayTo != null && !searchBirthdayTo.isEmpty()) {
+                    redirectURL.append("birthdayTo=")
+                             .append(URLEncoder.encode(searchBirthdayTo, StandardCharsets.UTF_8))
+                             .append("&");
+                }
+                if (currentPage != null && !currentPage.isEmpty()) {
+                    redirectURL.append("page=")
+                             .append(URLEncoder.encode(currentPage, StandardCharsets.UTF_8));
+                }
+                
+                response.sendRedirect(redirectURL.toString());
+                
+            } catch (RuntimeException e) {
+                request.setAttribute("error", e.getMessage());
+                request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+            }
+        }
+    }
+} 
