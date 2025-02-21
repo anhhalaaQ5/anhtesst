@@ -1,0 +1,347 @@
+package factory;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import dao.CustomerDAO;
+import dto.CustomerDTO;
+import dto.UserDTO;
+import jakarta.servlet.http.HttpSession;
+
+public class CustomerFactory {
+    private final CustomerDAO customerDAO = new CustomerDAO();
+    
+    public String processSearch(String name, String sex, String birthdayFrom, String birthdayTo, 
+                              String pageStr, HttpSession session) {
+        // Lưu các điều kiện tìm kiếm vào session
+        session.setAttribute("searchName", name);
+        session.setAttribute("searchSex", sex);
+        session.setAttribute("searchBirthdayFrom", birthdayFrom);
+        session.setAttribute("searchBirthdayTo", birthdayTo);
+        
+        // Xử lý phân trang
+        int page = 1;
+        if (pageStr != null && !pageStr.isEmpty()) {
+            page = Integer.parseInt(pageStr);
+        }
+        session.setAttribute("currentPage", String.valueOf(page));
+
+        // Lấy tổng số bản ghi và tính số trang
+        int totalRecords = customerDAO.getTotalRecords(name, sex, birthdayFrom, birthdayTo);
+        int maxPage = customerDAO.getMaxPage(totalRecords);
+
+        // Điều chỉnh page nếu vượt quá giới hạn
+        if (page < 1) page = 1;
+        if (page > maxPage) page = maxPage;
+
+        return "/WEB-INF/views/search.jsp";
+    }
+
+    public List<CustomerDTO> getCustomers(String name, String sex, String birthdayFrom, 
+                                        String birthdayTo, int page) {
+        return customerDAO.searchCustomers(name, sex, birthdayFrom, birthdayTo, page);
+    }
+
+    public String processDelete(String[] customerIds, HttpSession session) {
+        if (customerIds == null || customerIds.length == 0) {
+            return buildRedirectURL(session);
+        }
+
+        try {
+            customerDAO.deleteCustomers(customerIds);
+            return buildRedirectURL(session);
+        } catch (RuntimeException e) {
+            return null; // Return null to indicate error
+        }
+    }
+
+    private String buildRedirectURL(HttpSession session) {
+        StringBuilder redirectURL = new StringBuilder("search.jsp?");
+        
+        String searchName = (String) session.getAttribute("searchName");
+        String searchSex = (String) session.getAttribute("searchSex");
+        String searchBirthdayFrom = (String) session.getAttribute("searchBirthdayFrom");
+        String searchBirthdayTo = (String) session.getAttribute("searchBirthdayTo");
+        String currentPage = (String) session.getAttribute("currentPage");
+
+        if (searchName != null && !searchName.isEmpty()) {
+            redirectURL.append("customerName=")
+                      .append(URLEncoder.encode(searchName, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (searchSex != null && !searchSex.isEmpty() && !"-1".equals(searchSex)) {
+            redirectURL.append("sex=")
+                      .append(URLEncoder.encode(searchSex, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (searchBirthdayFrom != null && !searchBirthdayFrom.isEmpty()) {
+            redirectURL.append("birthdayFrom=")
+                      .append(URLEncoder.encode(searchBirthdayFrom, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (searchBirthdayTo != null && !searchBirthdayTo.isEmpty()) {
+            redirectURL.append("birthdayTo=")
+                      .append(URLEncoder.encode(searchBirthdayTo, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (currentPage != null && !currentPage.isEmpty()) {
+            redirectURL.append("page=")
+                      .append(URLEncoder.encode(currentPage, StandardCharsets.UTF_8));
+        }
+
+        return redirectURL.toString();
+    }
+}
+
+\\\\\\\\\\\\\\\\
+
+package action;
+
+import java.io.IOException;
+import factory.CustomerFactory;
+import dto.CustomerDTO;
+import dto.UserDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import java.util.List;
+
+@WebServlet("/search.jsp")
+public class CustomerServlet extends HttpServlet {
+    private final CustomerFactory customerFactory = new CustomerFactory();
+
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String name = request.getParameter("customerName");
+        String sex = request.getParameter("sex");
+        String birthdayFrom = request.getParameter("birthdayFrom");
+        String birthdayTo = request.getParameter("birthdayTo");
+        String pageStr = request.getParameter("page");
+
+        // Process search in factory
+        String viewPath = customerFactory.processSearch(name, sex, birthdayFrom, birthdayTo, pageStr, session);
+        
+        // Get page number from session after processing
+        int page = Integer.parseInt((String) session.getAttribute("currentPage"));
+        
+        // Get customers list
+        List<CustomerDTO> customers = customerFactory.getCustomers(name, sex, birthdayFrom, birthdayTo, page);
+        request.setAttribute("customers", customers);
+
+        request.getRequestDispatcher(viewPath).forward(request, response);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        if ("delete".equals(action)) {
+            String[] customerIds = request.getParameterValues("customerIds");
+            String redirectURL = customerFactory.processDelete(customerIds, session);
+            
+            if (redirectURL != null) {
+                response.sendRedirect(redirectURL);
+            } else {
+                doGet(request, response);
+            }
+            return;
+        }
+
+        doGet(request, response);
+    }
+}
+
+\\\\\\\\\\\\\\\\\\
+package factory;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import dao.CustomerDAO;
+import dto.CustomerDTO;
+import jakarta.servlet.http.HttpSession;
+
+public class CustomerAddFactory {
+    private final CustomerDAO customerDAO = new CustomerDAO();
+
+    public String processAdd() {
+        return "/WEB-INF/views/customerAdd.jsp";
+    }
+
+    public String processEdit(String customerId, HttpSession session) {
+        if (customerId == null || customerId.isEmpty()) {
+            return "search.jsp";
+        }
+
+        CustomerDTO customer = customerDAO.getCustomerById(Integer.parseInt(customerId));
+        if (customer == null) {
+            return "search.jsp";
+        }
+
+        return "/WEB-INF/views/customerAdd.jsp";
+    }
+
+    public CustomerDTO getCustomerById(String customerId) {
+        if (customerId == null || customerId.isEmpty()) {
+            return null;
+        }
+        return customerDAO.getCustomerById(Integer.parseInt(customerId));
+    }
+
+    public String processSave(String customerId, String name, String sex, 
+                            String birthday, String email, String address, 
+                            int userPsn, HttpSession session) {
+        try {
+            boolean isEdit = customerId != null && !customerId.isEmpty();
+            
+            if (isEdit) {
+                customerDAO.updateCustomer(
+                    Integer.parseInt(customerId), name, sex, birthday, email, address, userPsn);
+            } else {
+                customerDAO.addCustomer(name, sex, birthday, email, address, userPsn);
+            }
+            
+            return buildRedirectURL(session, isEdit);
+        } catch (RuntimeException e) {
+            throw e;
+        }
+    }
+
+    private String buildRedirectURL(HttpSession session, boolean isEdit) {
+        StringBuilder redirectURL = new StringBuilder("search.jsp?");
+
+        String searchName = (String) session.getAttribute("searchName");
+        String searchSex = (String) session.getAttribute("searchSex");
+        String searchBirthdayFrom = (String) session.getAttribute("searchBirthdayFrom");
+        String searchBirthdayTo = (String) session.getAttribute("searchBirthdayTo");
+        String currentPage = isEdit ? (String) session.getAttribute("currentPage") : "1";
+
+        if (searchName != null && !searchName.isEmpty()) {
+            redirectURL.append("customerName=")
+                      .append(URLEncoder.encode(searchName, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (searchSex != null && !searchSex.isEmpty() && !"-1".equals(searchSex)) {
+            redirectURL.append("sex=")
+                      .append(URLEncoder.encode(searchSex, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (searchBirthdayFrom != null && !searchBirthdayFrom.isEmpty()) {
+            redirectURL.append("birthdayFrom=")
+                      .append(URLEncoder.encode(searchBirthdayFrom, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (searchBirthdayTo != null && !searchBirthdayTo.isEmpty()) {
+            redirectURL.append("birthdayTo=")
+                      .append(URLEncoder.encode(searchBirthdayTo, StandardCharsets.UTF_8))
+                      .append("&");
+        }
+        if (currentPage != null && !currentPage.isEmpty()) {
+            redirectURL.append("page=")
+                      .append(URLEncoder.encode(currentPage, StandardCharsets.UTF_8));
+        }
+
+        return redirectURL.toString();
+    }
+}
+
+\\\\\\\\\\\\\\\\\\\\\\\
+package action;
+
+import java.io.IOException;
+import factory.CustomerAddFactory;
+import dto.CustomerDTO;
+import dto.UserDTO;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+
+@WebServlet("/customer")
+public class CustomerAddServlet extends HttpServlet {
+    private final CustomerAddFactory customerAddFactory = new CustomerAddFactory();
+    
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        String viewPath;
+        
+        if ("add".equals(action)) {
+            viewPath = customerAddFactory.processAdd();
+            request.getRequestDispatcher(viewPath).forward(request, response);
+        } else if ("edit".equals(action)) {
+            String customerId = request.getParameter("id");
+            viewPath = customerAddFactory.processEdit(customerId, session);
+            
+            if (viewPath.equals("search.jsp")) {
+                response.sendRedirect(viewPath);
+                return;
+            }
+            
+            CustomerDTO customer = customerAddFactory.getCustomerById(customerId);
+            request.setAttribute("customer", customer);
+            request.setAttribute("isEdit", true);
+            request.getRequestDispatcher(viewPath).forward(request, response);
+        }
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        HttpSession session = request.getSession();
+        UserDTO user = (UserDTO) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect("login.jsp");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        
+        if ("save".equals(action)) {
+            try {
+                String customerId = request.getParameter("customerId");
+                String name = request.getParameter("customerName");
+                String sex = request.getParameter("sex");
+                String birthday = request.getParameter("birthday");
+                String email = request.getParameter("email");
+                String address = request.getParameter("address");
+                
+                String redirectURL = customerAddFactory.processSave(
+                    customerId, name, sex, birthday, email, address, user.getPsn(), session);
+                    
+                response.sendRedirect(redirectURL);
+                
+            } catch (RuntimeException e) {
+                request.setAttribute("error", e.getMessage());
+                request.getRequestDispatcher("/WEB-INF/views/customerAdd.jsp").forward(request, response);
+            }
+        }
+    }
+}
